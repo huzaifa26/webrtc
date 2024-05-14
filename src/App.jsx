@@ -1,30 +1,38 @@
 import React, { useEffect, useRef } from 'react';
-
+const configuration = {
+  iceServers: [
+    {
+      urls: ["stun:stun1.l.google.com:19302", "stun:stun2.l.google.com:19302"],
+    },
+  ],
+  iceCandidatePoolSize: 10,
+}
 export default function App() {
   const localVideoRef = useRef();
   const peerConnectionRef = useRef(null);
   const ws = useRef(null);
 
   useEffect(() => {
-    ws.current = new WebSocket('ws://localhost:5000');
+    // ws.current = new WebSocket('ws://localhost:5000');
+    ws.current = new WebSocket('ws://192.168.132.125:5000');
 
     ws.current.onopen = () => {
       console.log('WebSocket connection established');
-      ws.current.send(JSON.stringify({ type: 'createOffer', message: 'connected' }));
+      // ws.current.send(JSON.stringify({ type: 'makeCall', message: 'connected' }));
+      makeCall();
     };
 
     ws.current.onmessage = async (event) => {
       const message = JSON.parse(event.data);
-      console.log(message);
 
-      if (message.type === 'createOffer') {
-        createOffer();
-      } else if (message.type === 'offer') {
-        // Handle incoming offer
-        await handleOffer(message.offer);
+      if (message.type === 'makeCall') {
+        makeCall();
       } else if (message.type === 'answer') {
         // Handle incoming answer
         await handleAnswer(message.answer);
+      } else if (message.type === 'offer') {
+        // Handle incoming offer
+        await handleOffer(message.offer);
       } else if (message.type === 'candidate') {
         // Handle incoming ICE candidate
         await handleCandidate(message);
@@ -36,25 +44,36 @@ export default function App() {
     };
   }, []);
 
-  const createOffer = async () => {
+
+  const makeCall = async () => {
     try {
-      // Initialize peer connection
-      peerConnectionRef.current = new RTCPeerConnection();
+      peerConnectionRef.current = new RTCPeerConnection(configuration);
 
-      // Add local stream to peer connection
-      const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      localVideoRef.current.srcObject = localStream;
-      localStream.getTracks().forEach((track) => {
-        peerConnectionRef.current.addTrack(track, localStream);
-      });
+      // peerConnectionRef.current.addEventListener('icecandidate', event => {
+      //   if (event.candidate) {
+      //     // Send ICE candidate to the other peer
+      //     ws.current.send(JSON.stringify({ type: 'candidate', candidate: event.candidate }));
+      //   }
+      // });
+      console.log('peerConnectionRef.current', peerConnectionRef.current);
+      peerConnectionRef.current.onicecandidate = event => {
+        console.log(event);
+        if (event.candidate) {
+          // Send ICE candidate to the other peer
+          ws.current.send(JSON.stringify({ type: 'candidate', candidate: event.candidate }));
+        }
+      }
+      peerConnectionRef.current.onsignalingstatechange = event => {
+        console.log(event);
+        if (event.candidate) {
+          // Send ICE candidate to the other peer
+          ws.current.send(JSON.stringify({ type: 'candidate', candidate: event.candidate }));
+        }
+      }
 
-      // Create offer
       const offer = await peerConnectionRef.current.createOffer();
-
-      // Set local description
       await peerConnectionRef.current.setLocalDescription(offer);
-
-      // Send offer to the other peer through the signaling server
+      console.log('sending Offer');
       ws.current.send(JSON.stringify({ type: 'offer', offer }));
     } catch (error) {
       console.error('Error creating offer:', error);
@@ -62,44 +81,27 @@ export default function App() {
   };
 
   const handleOffer = async (offer) => {
-    // Set up peer connection
-    peerConnectionRef.current = new RTCPeerConnection();
+    peerConnectionRef.current = new RTCPeerConnection(configuration);
 
-    // Add local stream to peer connection
-    const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    localVideoRef.current.srcObject = localStream;
-    localStream.getTracks().forEach((track) => {
-      peerConnectionRef.current.addTrack(track, localStream);
-    });
-
-    // Set remote description
-    console.log('running');
     await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(offer));
-
-    // Create answer
     const answer = await peerConnectionRef.current.createAnswer();
     await peerConnectionRef.current.setLocalDescription(answer);
-
-    // Send answer to the server
+    console.log('offer handled');
     ws.current.send(JSON.stringify({ type: 'answer', answer }));
   };
 
   const handleAnswer = async (answer) => {
     try {
-      console.log('running222', peerConnectionRef.current);
-      if (peerConnectionRef.current.connectionState === 'stable') {
-        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
-      } else {
-        console.warn('Peer connection is not in the correct state to accept the remote description.');
-      }
+      await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+      console.log('answer handled');
     } catch (error) {
       console.error('Error setting remote description:', error);
     }
   };
 
-
   const handleCandidate = async (candidate) => {
     // Add ICE candidate
+    console.log('handling candidate');
     await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
   };
 
@@ -109,3 +111,15 @@ export default function App() {
     </div>
   );
 }
+
+// const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+// localVideoRef.current.srcObject = localStream;
+// localStream.getTracks().forEach((track) => {
+//   peerConnectionRef.current.addTrack(track, localStream);
+// });
+
+// const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+// localVideoRef.current.srcObject = localStream;
+// localStream.getTracks().forEach((track) => {
+//   peerConnectionRef.current.addTrack(track, localStream);
+// });
